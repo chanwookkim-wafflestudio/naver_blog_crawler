@@ -1,14 +1,15 @@
 import requests
 from bs4 import BeautifulSoup, element
 import psycopg2
+from settings import CONNECTION_ARGUMENTS
+import sys
 
 URL = 'https://blog.naver.com/kehkeh0422/221230876380'
 HOST = 'https://blog.naver.com'
 
 
 def connect_to_db():
-    return psycopg2.connect(dbname="naver", user="naver@castcoin-postgre", password="ckdxhdtjf",
-                            host="naver.devluci.com")
+    return psycopg2.connect(**CONNECTION_ARGUMENTS)
 
 
 def get_data(blog_url):
@@ -22,6 +23,13 @@ def get_data(blog_url):
 
     res = requests.get(content_url)
     soup = BeautifulSoup(res.text, 'html.parser')
+
+    # check smart editor
+    editor_tags = soup.select('p.write_by_smarteditor3')
+    if len(editor_tags) == 0:
+        raise Exception('Warning: not written by smarteditor3, so just skip.')
+
+
     textarea_tag_list = soup.select('p.se_textarea')
 
     # getting body
@@ -52,17 +60,28 @@ def get_data(blog_url):
     }
 
 
-def insert_data(connection, data):
-    cur = connection.cursor()
-    cur.execute("INSERT INTO naver_post (post_id, username, title, body_raw, body) VALUES (%s, %s, %s, %s, %s)" % (
-        data['post_id'], data['username'], data['body'], data['body_raw'], data['title']))
-    cur.close()
+def insert_data(cur, data):
+    cur.execute(
+        "INSERT INTO blog_post (post_id, username, title, body_raw, body) VALUES (%s, %s, %s, %s, %s)", (
+            data['post_id'], data['username'], data['title'], data['body_raw'], data['body']))
 
 
 def main():
+    if len(sys.argv) < 2:
+        raise ReferenceError('Please input blog urls to execute.')
+
     connection = connect_to_db()
-    data = get_data(URL)
-    insert_data(connection, data)
+    cursor = connection.cursor()
+    urls = sys.argv[1:]
+    for idx, blog_url in enumerate(urls):
+        print('[%d/%d]: %s' % (idx + 1, len(urls), blog_url))
+        try:
+            data = get_data(blog_url)
+            insert_data(cursor, data)
+            connection.commit()
+        except Exception as e:
+            print(e)
+
     connection.close()
 
 
